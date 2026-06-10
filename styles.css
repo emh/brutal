@@ -23,7 +23,7 @@ body{
   box-shadow:6px 6px 0 #000, 0 0 0 2px #000;
 }
 @media(min-width:600px){ #app{ height:calc(100% - 24px); } }
-canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+#c{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 .ov{ position:absolute; z-index:2; }
 
 /* ---- score (top-center; black with white outline, pieces fall behind it) ---- */
@@ -60,7 +60,17 @@ canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 .card .big{ font-weight:300; font-size:72px; line-height:1; color:var(--ink); }
 .card .cap{ font-size:9px; letter-spacing:.24em; color:var(--muted); font-weight:700; text-transform:uppercase; margin-top:6px; }
 .card .meta{ font-size:15px; color:var(--ink); margin-top:14px; letter-spacing:.04em; }
-.card .btns{ display:flex; gap:10px; margin-top:24px; }
+.card .btns{ display:flex; gap:10px; margin-top:24px; flex-wrap:wrap; justify-content:center; }
+
+/* ---- share modal ---- */
+/* transparent backdrop: reuse the game-over modal's darkening beneath, so opening
+   the share modal adds no second dim layer and there's no cross-fade flash */
+#share{ z-index:7; background:transparent; }
+#over.cardless .card{ display:none; }   /* keep the backdrop, hide the card while share is up */
+#share .card{ max-width:min(86vw,360px); }
+.share-img{ margin:6px 0 2px; display:flex; justify-content:center; }
+.share-img canvas{ display:block; max-width:100%; max-height:48vh; width:auto; height:auto;
+                   border:2px solid #000; box-shadow:3px 3px 0 #000; background:#b8b6b4; }
 .card button{ cursor:pointer; font-family:"Space Grotesk",sans-serif; font-size:11px; font-weight:700;
               letter-spacing:.18em; text-transform:uppercase;
               color:var(--concrete-hi); background:var(--steel-mid); border:2px solid #000; padding:12px 24px;

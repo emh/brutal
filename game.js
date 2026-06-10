@@ -214,6 +214,7 @@ const keys = new Set();
 let dropQueued=false, moveHold=0, moveDir=0, rotHold=0, rotDir=0;
 let cameraY=0, targetCameraY=0, baseRock=null, settlingRock=null;
 let running=false;   // false while the welcome modal is up; set true on "begin"
+let finalScore=0, shareBlob=null;   // captured at game over; tower PNG for sharing
 
 function spawnRock(){
   const shape=makeShape();
@@ -342,7 +343,9 @@ function checkTopple(){
 }
 function triggerGameOver(){
   state.phase='over';
-  document.getElementById('ovStones').textContent=towerHeightCm();
+  finalScore=towerHeightCm();
+  document.getElementById('ovStones').textContent=finalScore;
+  document.getElementById('over').classList.remove('cardless');
   document.getElementById('over').classList.add('show');
 }
 
@@ -381,12 +384,12 @@ function buildBackground(){
 
 // ================= 3D slab rendering =================
 // Compute outward edge normals for a screen-space polygon.
-function drawLitEdges(pts){
+function drawLitEdges(pts, c=ctx){
   let area=0;
   for(let i=0;i<pts.length;i++){const p=pts[i],q=pts[(i+1)%pts.length]; area+=p.x*q.y-q.x*p.y;}
   const cw=area>0;
   const lx=Math.SQRT1_2, ly=-Math.SQRT1_2;  // light from top-right
-  ctx.lineCap='round';
+  c.lineCap='round';
   for(let i=0;i<pts.length;i++){
     const a=pts[i], b=pts[(i+1)%pts.length];
     const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
@@ -396,9 +399,9 @@ function drawLitEdges(pts){
     const grey=Math.round((d+1)*0.5*255);
     const alpha=(0.25+Math.abs(d)*0.65).toFixed(2);
     const lw=2.5+Math.abs(d)*1.5;
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
-    ctx.strokeStyle=`rgba(${grey},${grey},${grey},${alpha})`;
-    ctx.lineWidth=lw; ctx.stroke();
+    c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y);
+    c.strokeStyle=`rgba(${grey},${grey},${grey},${alpha})`;
+    c.lineWidth=lw; c.stroke();
   }
 }
 
@@ -420,6 +423,44 @@ function drawBlock(r, active){
     x:(pos.x+v.x*bc-v.y*bs)*PPM,
     y:(pos.y+v.x*bs+v.y*bc-cameraY)*PPM
   })));
+}
+
+// ================= tower image export (for sharing) =================
+// Draw one settled rock onto context c using a world→pixel mapping (scale px/m,
+// with world (minX,minY) at the canvas origin). Mirrors drawBlock's look.
+function drawRockExport(c, r, scale, minX, minY){
+  const t=r.body.translation(), ang=r.body.rotation();
+  const bc=Math.cos(ang), bs=Math.sin(ang);
+  c.save();
+  c.translate((t.x-minX)*scale,(t.y-minY)*scale);
+  c.rotate(ang);
+  c.beginPath();
+  r.outline.forEach((v,i)=>i?c.lineTo(v.x*scale,v.y*scale):c.moveTo(v.x*scale,v.y*scale));
+  c.closePath(); c.clip();
+  if(r.tex){ const k=scale/PPM; c.drawImage(r.tex, -r.texOX*k, -r.texOY*k, r.tex.width*k, r.tex.height*k); }
+  c.restore();
+  drawLitEdges(r.outline.map(v=>({
+    x:(t.x+v.x*bc-v.y*bs-minX)*scale,
+    y:(t.y+v.x*bs+v.y*bc-minY)*scale
+  })), c);
+}
+// Render the full settled tower into a fresh canvas, cropped to its bounds.
+function buildTowerImage(){
+  const settled=rocks.filter(r=>r.settled);
+  if(!settled.length) return null;
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  for(const r of settled) for(const v of worldVerts(r)){
+    if(v.x<minX)minX=v.x; if(v.x>maxX)maxX=v.x; if(v.y<minY)minY=v.y; if(v.y>maxY)maxY=v.y;
+  }
+  const pad=0.22; minX-=pad; maxX+=pad; minY-=pad; maxY+=pad;
+  const wM=maxX-minX, hM=maxY-minY;
+  const scale=Math.min(220, 1500/wM, 1500/hM);   // px per metre, capped to ~1500px longest side
+  const cw=Math.max(1,Math.round(wM*scale)), ch=Math.max(1,Math.round(hM*scale));
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const c=cv.getContext('2d');
+  if(bgCanvas) c.drawImage(bgCanvas,0,0,cw,ch); else { c.fillStyle='#b8b6b4'; c.fillRect(0,0,cw,ch); }
+  for(const r of settled) drawRockExport(c,r,scale,minX,minY);
+  return cv;
 }
 
 // ================= render =================
@@ -465,6 +506,57 @@ document.getElementById('ovBtn').addEventListener('click', reset);
 document.getElementById('introBtn').addEventListener('click', ()=>{
   document.getElementById('intro').classList.remove('show');
   running=true; lastT=performance.now();   // reset clock so the first dt isn't a big jump
+});
+
+// ---- share modal ----
+function openShare(){
+  const cv=buildTowerImage();
+  if(!cv) return;
+  const wrap=document.getElementById('shareImgWrap');
+  wrap.innerHTML=''; wrap.appendChild(cv);
+  shareBlob=null;
+  cv.toBlob(b=>{ shareBlob=b; }, 'image/png');
+  // keep the game-over backdrop (just hide its card) so there's no second dim layer / flash
+  document.getElementById('over').classList.add('cardless');
+  document.getElementById('share').classList.add('show');
+}
+async function doShare(){
+  const text=`i got to ${finalScore} on brutal.`, url='https://emh.io/brutal';
+  const file=shareBlob ? new File([shareBlob],'brutal.png',{type:'image/png'}) : null;
+  // Best path: native share sheet with the image attached.
+  if(file && navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({text,url,files:[file]}); }
+    catch(e){ /* user dismissed */ }
+    return;
+  }
+  // Fallback (e.g. desktop Firefox / no file-share): download the PNG and copy the caption.
+  const btn=document.getElementById('shareDo'), old=btn.textContent;
+  if(shareBlob){
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(shareBlob); a.download='brutal.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(`${text} ${url}`).catch(()=>{});
+  }
+  btn.textContent='saved image'; setTimeout(()=>{ btn.textContent=old; }, 1500);
+}
+async function copyImage(){
+  const btn=document.getElementById('shareCopy'), old=btn.textContent;
+  try{
+    if(!shareBlob || !navigator.clipboard || !window.ClipboardItem) throw new Error('unsupported');
+    await navigator.clipboard.write([new ClipboardItem({'image/png':shareBlob})]);
+    btn.textContent='copied!';
+  }catch(e){ btn.textContent='failed'; }
+  setTimeout(()=>{ btn.textContent=old; }, 1400);
+}
+document.getElementById('ovShare').addEventListener('click', openShare);
+document.getElementById('shareDo').addEventListener('click', doShare);
+document.getElementById('shareCopy').addEventListener('click', copyImage);
+document.getElementById('shareClose').addEventListener('click', ()=>{
+  document.getElementById('share').classList.remove('show');
+  document.getElementById('over').classList.remove('cardless');   // reveal the game-over card again
 });
 
 // ================= world / lifecycle =================
