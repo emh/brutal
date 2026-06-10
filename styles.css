@@ -1,0 +1,72 @@
+:root{
+  --bg:#e2d8c4;
+  --cream:#f1ead9; --cream-hi:#fbf6ec;
+  --panel:#fbf7ef; --ink:#4c4736; --muted:#9a9379; --muted-2:#b4ad96;
+  --sage:#869377; --sage-deep:#5f6d52; --line:rgba(76,71,54,.12);
+  --soft:rgba(86,74,48,.14);
+}
+*{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; }
+body{
+  background:#ddd2bd; color:var(--ink);
+  font-family:"Inter", system-ui, sans-serif;
+  overflow:hidden; user-select:none; -webkit-user-select:none; touch-action:none;
+  display:flex; align-items:center; justify-content:center;
+}
+#app{
+  position:relative; width:100%; height:100%; max-width:560px; margin:0 auto;
+  background:var(--cream); overflow:hidden;
+  box-shadow:0 18px 60px rgba(60,50,30,.28);
+}
+@media(min-width:600px){ #app{ height:calc(100% - 24px); border-radius:34px; } }
+canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+.ov{ position:absolute; z-index:2; }
+
+/* ---- score (hidden for now) ---- */
+#score{ display:none; top:20px; left:0; right:0; text-align:center; pointer-events:none; }
+#score .slab{ font-size:10px; letter-spacing:.30em; color:var(--muted); font-weight:600; }
+#score .sval{ font-family:"Crimson Pro",serif; font-weight:400; font-size:46px; line-height:1.0; color:var(--ink); margin-top:2px; }
+
+/* ---- bottom controls (frosted, floating on the water) ---- */
+#controls{ left:0; right:0; bottom:26px; display:flex; align-items:center; justify-content:center; gap:14px; padding:0 14px; }
+.ctl{ flex:1 1 0; max-width:96px; border:none; background:transparent; cursor:pointer; color:var(--ink);
+      display:flex; flex-direction:column; align-items:center; font-family:inherit; }
+.ctl .ic{ width:58px; height:58px; border-radius:50%; background:rgba(250,245,236,.66); display:grid; place-items:center;
+          backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+          box-shadow:0 4px 12px rgba(70,55,30,.10), inset 0 0 0 1px rgba(255,255,255,.45); transition:transform .08s, background .15s; }
+.ctl.drop .ic{ width:84px; height:84px; background:rgba(251,246,236,.74); box-shadow:0 6px 18px rgba(70,55,30,.13), inset 0 0 0 1.5px var(--sage); }
+.ctl:active .ic{ transform:translateY(2px) scale(.96); background:rgba(236,227,210,.8); }
+.ctl svg{ stroke:var(--ink); stroke-width:1.7; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.ctl.drop svg{ stroke:var(--sage-deep); stroke-width:1.9; }
+
+/* ---- panels (pause / level complete / win / boot) ---- */
+.panel{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(225,215,195,.55);
+        backdrop-filter:blur(2px); opacity:0; pointer-events:none; transition:opacity .3s ease; z-index:5; }
+.panel.show{ opacity:1; pointer-events:auto; }
+.card{ background:var(--panel); border-radius:22px; padding:26px 40px 30px; text-align:center;
+       box-shadow:0 20px 50px rgba(60,45,20,.22), inset 0 0 0 1px rgba(255,255,255,.5);
+       display:flex; flex-direction:column; align-items:center; min-width:230px; }
+.card .rsn{ font-size:11px; letter-spacing:.18em; color:var(--muted); font-weight:600; text-transform:uppercase; margin-bottom:6px; }
+.card .big{ font-family:"Crimson Pro",serif; font-weight:300; font-size:64px; line-height:1; color:var(--ink); }
+.card .cap{ font-size:10px; letter-spacing:.18em; color:var(--muted); font-weight:600; text-transform:uppercase; margin-top:8px; }
+.card .meta{ font-family:"Crimson Pro",serif; font-size:16px; color:var(--ink); margin-top:14px; letter-spacing:.04em; }
+.card .btns{ display:flex; gap:10px; margin-top:22px; }
+.card button{ cursor:pointer; font-family:inherit; font-size:13px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+              color:var(--ink); background:var(--cream); border:none; border-radius:13px; padding:12px 22px;
+              box-shadow:inset 0 0 0 1px var(--line); transition:background .15s; }
+.card button.pri{ background:var(--sage); color:#fff; box-shadow:none; }
+.card button:hover{ filter:brightness(.97); }
+
+/* ---- welcome / how-to card ---- */
+#intro .card{ max-width:344px; }
+.intro-art{ margin:4px auto 14px; }
+.intro-art svg{ display:block; width:120px; height:auto; }
+.intro-art ellipse{ fill:#ece4d2; stroke:#9aa288; stroke-width:1.4; }
+.intro-head{ font-family:"Crimson Pro",serif; font-weight:400; font-size:30px; line-height:1; color:var(--ink); }
+.intro-copy{ font-family:"Crimson Pro",serif; font-weight:300; font-size:16px; line-height:1.45; color:var(--ink); opacity:.85; margin:11px auto 2px; max-width:286px; }
+.intro-hints{ display:flex; gap:16px; margin-top:20px; }
+.intro-hint{ display:flex; flex-direction:column; align-items:center; gap:7px; }
+.intro-hint .chip{ width:44px; height:44px; border-radius:50%; background:var(--cream); display:grid; place-items:center; box-shadow:inset 0 0 0 1px var(--line); }
+.intro-hint .chip svg{ stroke:var(--ink); stroke-width:1.7; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.intro-hint .lab{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+#boot{ position:absolute; inset:0; display:grid; place-items:center; z-index:6; color:var(--muted); letter-spacing:.2em; font-size:12px; font-weight:600; }

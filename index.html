@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Balance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <canvas id="c"></canvas>
+
+    <div class="ov" id="score"><div class="slab">SCORE</div><div class="sval" id="sVal">0</div></div>
+
+    <div class="ov" id="controls">
+      <button class="ctl" id="btnLeft"><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24"><line x1="19" y1="12" x2="6" y2="12"/><polyline points="12 18 6 12 12 6"/></svg></span></button>
+      <button class="ctl" id="btnRotL"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24"><polyline points="2.5 5 2.5 10.5 8 10.5"/><path d="M4 15.5a8.5 8.5 0 1 0 2-9L2.5 10.5"/></svg></span></button>
+      <button class="ctl drop" id="btnDrop"><span class="ic"><svg width="30" height="30" viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="15"/><polyline points="7 11 12 16 17 11"/><line x1="6.5" y1="20" x2="17.5" y2="20"/></svg></span></button>
+      <button class="ctl" id="btnRotR"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24"><polyline points="21.5 5 21.5 10.5 16 10.5"/><path d="M20 15.5a8.5 8.5 0 1 1-2-9L21.5 10.5"/></svg></span></button>
+      <button class="ctl" id="btnRight"><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24"><line x1="5" y1="12" x2="18" y2="12"/><polyline points="12 6 18 12 12 18"/></svg></span></button>
+    </div>
+
+    <div class="panel" id="over"><div class="card">
+      <div class="rsn">you reached the top</div>
+      <div class="big" id="ovStones">0</div>
+      <div class="cap">stones used</div>
+      <div class="btns"><button class="pri" id="ovBtn">play again</button></div>
+    </div></div>
+
+    <div class="panel show" id="intro"><div class="card">
+      <div class="rsn">rock balance</div>
+      <div class="intro-art">
+        <svg viewBox="0 0 130 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <ellipse cx="65" cy="100" rx="40" ry="13"/>
+          <ellipse cx="61" cy="79"  rx="31" ry="12"/>
+          <ellipse cx="67" cy="60"  rx="24" ry="10.5"/>
+          <ellipse cx="62" cy="43"  rx="17" ry="9"/>
+          <ellipse cx="66" cy="29"  rx="11" ry="7"/>
+        </svg>
+      </div>
+      <div class="intro-head">Stack the stones</div>
+      <p class="intro-copy">Move, rotate and drop each falling stone to build a balanced tower &mdash; reach the top without it toppling.</p>
+      <div class="intro-hints">
+        <div class="intro-hint"><span class="chip"><svg width="22" height="22" viewBox="0 0 24 24"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="8 7 3.5 12 8 17"/><polyline points="16 7 20.5 12 16 17"/></svg></span><span class="lab">move</span></div>
+        <div class="intro-hint"><span class="chip"><svg width="20" height="20" viewBox="0 0 24 24"><polyline points="21.5 5 21.5 10.5 16 10.5"/><path d="M20 15.5a8.5 8.5 0 1 1-2-9L21.5 10.5"/></svg></span><span class="lab">rotate</span></div>
+        <div class="intro-hint"><span class="chip"><svg width="22" height="22" viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="14"/><polyline points="7 10 12 15 17 10"/><line x1="6.5" y1="19" x2="17.5" y2="19"/></svg></span><span class="lab">drop</span></div>
+      </div>
+      <div class="btns"><button class="pri" id="introBtn">begin</button></div>
+    </div></div>
+
+    <div id="boot">balancing&hellip;</div>
+  </div>
+
+<script type="importmap">
+{ "imports": { "@dimforge/rapier2d-compat": "https://esm.sh/@dimforge/rapier2d-compat@0.14.0" } }
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>
