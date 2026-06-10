@@ -213,6 +213,7 @@ const state = { phase:'aim', active:null, used:0, settleT:0, simT:0 };
 const keys = new Set();
 let dropQueued=false, moveHold=0, moveDir=0, rotHold=0, rotDir=0;
 let cameraY=0, targetCameraY=0, baseRock=null, settlingRock=null;
+let running=false;   // false while the welcome modal is up; set true on "begin"
 
 function spawnRock(){
   const shape=makeShape();
@@ -269,6 +270,7 @@ function release(){ const a=state.active; a.rock.body.setBodyType(RAPIER.RigidBo
 let lastT=performance.now();
 function frame(now){
   const dt=Math.min(0.033,(now-lastT)/1000); lastT=now;
+  if(running){
   // smooth camera pan toward target
   cameraY+=(targetCameraY-cameraY)*Math.min(1,5.0*dt);
   if(state.phase!=='over'){
@@ -300,6 +302,7 @@ function frame(now){
     }
     checkTopple();
     removeFallen();
+  }
   }
   render();
   requestAnimationFrame(frame);
@@ -459,6 +462,10 @@ document.getElementById('btnDrop').addEventListener('pointerdown', e=>{ e.preven
 window.addEventListener('pointerup', ()=>{ keys.delete('ArrowLeft'); keys.delete('ArrowRight'); keys.delete('ArrowUp'); keys.delete('ArrowDown'); });
 
 document.getElementById('ovBtn').addEventListener('click', reset);
+document.getElementById('introBtn').addEventListener('click', ()=>{
+  document.getElementById('intro').classList.remove('show');
+  running=true; lastT=performance.now();   // reset clock so the first dt isn't a big jump
+});
 
 // ================= world / lifecycle =================
 let world, groundCol;
@@ -500,4 +507,5 @@ window.addEventListener('resize', ()=>{ sizeCanvas(); buildBackground(); });
 
 buildBackground();
 reset();
+document.getElementById('intro').classList.add('show');   // welcome modal; game waits for "begin"
 requestAnimationFrame(frame);
