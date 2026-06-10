@@ -226,7 +226,7 @@ function spawnRock(){
   state.descentV = SLOW + (DESCENT-SLOW)*Math.min(1, state.used/9);
   const rock=addRock(x,y,state.used===0?0:rnd(-0.175,0.175),shape,false);
   state.active={ rock, x, y, angle:rock.body.rotation(), hw, hh, shape };
-  moveHold=0; moveDir=0; rotHold=0; rotDir=0; state.phase='aim';
+  moveHold=0; moveDir=0; rotHold=0; rotDir=0; dropQueued=false; state.phase='aim';
 }
 function clampVel(){ for(const r of rocks){ if(r.body.bodyType()!==RAPIER.RigidBodyType.Dynamic) continue;
   const v=r.body.linvel(), sp=Math.hypot(v.x,v.y); if(sp>5){ const k=5/sp; r.body.setLinvel({x:v.x*k,y:v.y*k},true); }

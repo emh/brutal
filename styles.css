@@ -10,6 +10,7 @@
   --line:rgba(0,0,0,0.22);
 }
 *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+button{ touch-action:manipulation; }   /* kill double-tap-to-zoom on the controls */
 html,body{ height:100%; }
 body{
   background:#0e0d0c; color:var(--ink);
