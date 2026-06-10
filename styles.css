@@ -26,8 +26,13 @@ body{
 canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 .ov{ position:absolute; z-index:2; }
 
-/* ---- score ---- */
-#score{ display:none; }
+/* ---- score (top-center; black with white outline, pieces fall behind it) ---- */
+#score{ top:0; left:0; right:0; display:flex; justify-content:center; align-items:center;
+        padding:18px 0 0; pointer-events:none; }
+.sval{ font-family:"Space Grotesk", sans-serif; font-weight:700; font-size:64px; line-height:1;
+       color:#0d0c0b; letter-spacing:.01em;
+       text-shadow:-2px -2px 0 #b4b0ac, 2px -2px 0 #b4b0ac, -2px 2px 0 #b4b0ac, 2px 2px 0 #b4b0ac,
+                    0 -2px 0 #b4b0ac, 0 2px 0 #b4b0ac, -2px 0 0 #b4b0ac, 2px 0 0 #b4b0ac; }
 
 /* ---- controls ---- */
 #controls{

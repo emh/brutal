@@ -212,7 +212,7 @@ function maxVel(){ let m=0; for(const r of rocks){ if(r.body.bodyType()!==RAPIER
 const state = { phase:'aim', active:null, used:0, settleT:0, simT:0 };
 const keys = new Set();
 let dropQueued=false, moveHold=0, moveDir=0, rotHold=0, rotDir=0;
-let cameraY=0, targetCameraY=0, baseRock=null;
+let cameraY=0, targetCameraY=0, baseRock=null, settlingRock=null;
 
 function spawnRock(){
   const shape=makeShape();
@@ -261,6 +261,7 @@ function poseOverlaps(a, x, y, angle){
 }
 function release(){ const a=state.active; a.rock.body.setBodyType(RAPIER.RigidBodyType.Dynamic,true);
   a.rock.body.setLinvel({x:0,y:0},true); a.rock.body.setAngvel(0,true);
+  settlingRock=a.rock;            // counts toward the score only once it finishes settling
   if(!baseRock) baseRock=a.rock;
   state.active=null; state.used++; state.settleT=0; state.simT=0; state.phase='sim'; }
 
@@ -305,6 +306,7 @@ function frame(now){
 }
 
 function finalizePlacement(){
+  if(settlingRock) settlingRock.settled=true;   // now it has come to rest → counts in score
   // Lock the base piece in place so it can't be displaced by subsequent pieces landing on it
   if(baseRock && baseRock.body.bodyType()===RAPIER.RigidBodyType.Dynamic){
     baseRock.body.setBodyType(RAPIER.RigidBodyType.Fixed,false);
@@ -321,7 +323,8 @@ function maybePanCamera(){
   }
 }
 function towerHeightCm(){
-  let topY=floorYm; for(const r of rocks) for(const v of worldVerts(r)) topY=Math.min(topY,v.y);
+  let topY=floorYm;
+  for(const r of rocks){ if(!r.settled) continue; for(const v of worldVerts(r)) topY=Math.min(topY,v.y); }
   return Math.max(0,Math.round((floorYm-topY)*100));
 }
 function checkTopple(){
@@ -430,7 +433,10 @@ function render(){
 
   for(const r of rocks) drawBlock(r);
   if(state.active) drawBlock(state.active.rock, state.active);
+
+  sValEl.textContent = towerHeightCm();
 }
+const sValEl = document.getElementById('sVal');
 
 // ================= input =================
 window.addEventListener('keydown', e=>{
@@ -484,7 +490,7 @@ function reset(){
   buildWorld();
   rocks=[]; colToRock.clear();
   state.phase='aim'; state.active=null; state.used=0; state.settleT=0; state.simT=0;
-  cameraY=0; targetCameraY=0; baseRock=null;
+  cameraY=0; targetCameraY=0; baseRock=null; settlingRock=null;
   dropQueued=false;
   document.getElementById('over').classList.remove('show');
   spawnRock();
