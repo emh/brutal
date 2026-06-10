@@ -7,10 +7,9 @@ const app = document.getElementById('app');
 const cvs = document.getElementById('c');
 const ctx = cvs.getContext('2d');
 const PPM = 100;
-const TOP_MARGIN_PX = 74;      // stones spawn from here (just under the score)
-const CEILING_PX = 260;        // tower tops out here — kept well below the spawn line so there's room to slide a stone over
-const BTN_PX = 118, WATER_PX = 64;
-const DESCENT = 1.6;           // constant descent speed (kinematic — velocity is zeroed on release)
+const CEILING_PX = 300;
+const BTN_PX = 90, FLOOR_GAP = 0;
+const DESCENT = 1.6;
 const SETTLE_VEL = 0.04, SETTLE_HOLD = 0.35, SETTLE_MAX = 3.0;
 
 let W, H, DPR, floorYpx, floorYm, worldW;
@@ -21,413 +20,420 @@ function sizeCanvas(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 sizeCanvas();
-worldW = W/PPM; floorYpx = H - BTN_PX - WATER_PX; floorYm = floorYpx/PPM;
+worldW = W/PPM; floorYpx = H - BTN_PX - FLOOR_GAP; floorYm = floorYpx/PPM;
 const M2P = m => m*PPM;
 
-// ================= small math / noise =================
+// ================= math =================
 const rnd = (a,b)=>a+Math.random()*(b-a);
 const lerp=(a,b,t)=>a+(b-a)*t;
 const clampn=(v,a,b)=>Math.max(a,Math.min(b,v));
 const smoothstep=t=>{t=clampn(t,0,1);return t*t*(3-2*t);};
-const mix=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
 const rgb=(c,a=1)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
 function mulberry32(a){return function(){let t=a+=0x6D2B79F5;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};}
 function hash(n){n=Math.imul(n^(n>>>16),0x45d9f3b);n=Math.imul(n^(n>>>16),0x45d9f3b);return((n^(n>>>16))>>>0)/4294967295;}
 function noise1(x,s){const i=Math.floor(x),f=x-i;return lerp(hash(i+s*1013),hash(i+1+s*1013),smoothstep(f))*2-1;}
 
-// ================= rock geometry =================
-function convexHull(pts){const p=pts.slice().sort((a,b)=>a.x-b.x||a.y-b.y);const cr=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);const lo=[],hi=[];for(const q of p){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q);}for(let i=p.length-1;i>=0;i--){const q=p[i];while(hi.length>=2&&cr(hi[hi.length-2],hi[hi.length-1],q)<=0)hi.pop();hi.push(q);}lo.pop();hi.pop();return lo.concat(hi);}
-function chaikin(poly,it){let p=poly;for(let k=0;k<it;k++){const o=[];for(let i=0;i<p.length;i++){const a=p[i],b=p[(i+1)%p.length];o.push({x:a.x*0.75+b.x*0.25,y:a.y*0.75+b.y*0.25});o.push({x:a.x*0.25+b.x*0.75,y:a.y*0.25+b.y*0.75});}p=o;}return p;}
-function pac(poly){let A=0,cx=0,cy=0;for(let i=0;i<poly.length;i++){const p=poly[i],q=poly[(i+1)%poly.length];const c=p.x*q.y-q.x*p.y;A+=c;cx+=(p.x+q.x)*c;cy+=(p.y+q.y)*c;}A*=0.5;return{area:Math.abs(A),cx:cx/(6*A),cy:cy/(6*A)};}
+// ================= perlin noise =================
+function makePermutation(sv){
+  const r=mulberry32(sv|0),p=Array.from({length:256},(_,i)=>i);
+  for(let i=255;i>0;i--){const j=Math.floor(r()*(i+1));[p[i],p[j]]=[p[j],p[i]];}
+  return p.concat(p);
+}
+function pFade(t){return t*t*t*(t*(t*6-15)+10);}
+function pGrad(h,x,y){const u=h<2?x:y,v=h<2?y:x;return((h&1)?-u:u)+((h&2)?-2*v:2*v);}
+function perlin2(x,y,pm){
+  const xi=Math.floor(x)&255,yi=Math.floor(y)&255,xf=x-Math.floor(x),yf=y-Math.floor(y);
+  const u=pFade(xf),v=pFade(yf);
+  const aa=pm[pm[xi]+yi],ab=pm[pm[xi]+yi+1],ba=pm[pm[xi+1]+yi],bb=pm[pm[xi+1]+yi+1];
+  return lerp(lerp(pGrad(aa,xf,yf),pGrad(ba,xf-1,yf),u),lerp(pGrad(ab,xf,yf-1),pGrad(bb,xf-1,yf-1),u),v);
+}
+function fbm2(x,y,pm,oct){
+  let v=0,a=0.5,f=1,m=0;
+  for(let i=0;i<oct;i++){v+=a*perlin2(x*f,y*f,pm);m+=a;a*=0.5;f*=2;}
+  return v/m;
+}
+let bgPerm=makePermutation(42);
+
+// ================= block geometry: irregular convex polygons =================
+// Andrew's monotone chain convex hull. In/out are {x,y} arrays; output is CCW.
+function convexHull(pts){
+  pts = pts.slice().sort((a,b)=> a.x-b.x || a.y-b.y);
+  const n=pts.length; if(n<3) return pts;
+  const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lower=[];
+  for(const p of pts){ while(lower.length>=2 && cross(lower[lower.length-2],lower[lower.length-1],p)<=0) lower.pop(); lower.push(p); }
+  const upper=[];
+  for(let i=n-1;i>=0;i--){ const p=pts[i]; while(upper.length>=2 && cross(upper[upper.length-2],upper[upper.length-1],p)<=0) upper.pop(); upper.push(p); }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+// Finish a block from a raw point set: jitter, hull (guaranteed convex), recentre on
+// centroid, compute area. The same vertices drive both rendering and the physics
+// collider, so what you see is exactly what collides.
+function hullShape(pts){
+  let bx0=1e9,bx1=-1e9,by0=1e9,by1=-1e9;
+  for(const p of pts){ bx0=Math.min(bx0,p.x); bx1=Math.max(bx1,p.x); by0=Math.min(by0,p.y); by1=Math.max(by1,p.y); }
+  const j=Math.min(bx1-bx0,by1-by0)*0.06;
+  for(const p of pts){ p.x+=rnd(-j,j); p.y+=rnd(-j,j); }
+  const hull=convexHull(pts);
+  let cx=0,cy=0; for(const p of hull){ cx+=p.x; cy+=p.y; } cx/=hull.length; cy/=hull.length;
+  const outline=hull.map(p=>({x:p.x-cx, y:p.y-cy}));
+  let area=0; for(let i=0;i<outline.length;i++){ const a=outline[i],b=outline[(i+1)%outline.length]; area+=a.x*b.y-b.x*a.y; }
+  area=Math.abs(area)*0.5;
+  const flat=new Float32Array(outline.length*2);
+  for(let i=0;i<outline.length;i++){ flat[i*2]=outline[i].x; flat[i*2+1]=outline[i].y; }
+  return {outline, hull:flat, area};
+}
+// Rectangle (w×h) with up to `maxChamfer` corners cut back → 4–6 sides.
+function rectPts(w,h,maxChamfer){
+  const hw=w/2, hh=h/2;
+  const corners=[{x:-hw,y:-hh},{x:hw,y:-hh},{x:hw,y:hh},{x:-hw,y:hh}];
+  const nCh=(Math.random()*(maxChamfer+1))|0;
+  const chosen=[0,1,2,3].sort(()=>Math.random()-0.5).slice(0,nCh);
+  const minDim=Math.min(hw,hh), pts=[];
+  for(let i=0;i<4;i++){
+    const c=corners[i];
+    if(chosen.includes(i)){
+      const prev=corners[(i+3)%4], next=corners[(i+1)%4];
+      const cut=minDim*rnd(0.30,0.55);
+      const tp={x:prev.x-c.x,y:prev.y-c.y}, tn={x:next.x-c.x,y:next.y-c.y};
+      const lp=Math.hypot(tp.x,tp.y), ln=Math.hypot(tn.x,tn.y);
+      pts.push({x:c.x+tp.x/lp*cut, y:c.y+tp.y/lp*cut});
+      pts.push({x:c.x+tn.x/ln*cut, y:c.y+tn.y/ln*cut});
+    } else pts.push({x:c.x,y:c.y});
+  }
+  return pts;
+}
+// Wedge: a 4-sided trapezoid — wide base, narrower offset top with a blunted corner.
+function wedgePts(w,h){
+  const hw=w/2, hh=h/2;
+  const topW=hw*rnd(0.32,0.60), off=hw*rnd(-0.38,0.38);
+  return [{x:-hw,y:hh},{x:hw,y:hh},{x:off+topW,y:-hh},{x:off-topW,y:-hh}];
+}
+// Right-angle ramp, blunted to a 4-sided right trapezoid: full base, vertical right
+// side, slanted left side, and a short top edge (the blunted apex).
+function rampPts(w,h){
+  const hw=w/2, hh=h/2;
+  const topL = -hw + w*rnd(0.42,0.72);   // top-left x — leaves a slanted left side
+  return [{x:-hw,y:hh},{x:hw,y:hh},{x:hw,y:-hh},{x:topL,y:-hh}];
+}
+const flipY = p=>({x:p.x,y:-p.y}), flipX = p=>({x:-p.x,y:p.y});
 function makeShape(){
-  const baseR = rnd(0.44,0.70);
-  const prog = Math.min(1, state.used/30);
-  const round = Math.max(0, Math.min(0.85, prog*0.7 + rnd(-0.42,0.42)));
-  const flat  = lerp(0.46,0.82,round) * rnd(0.94,1.06);
-  const elong = lerp(1.5,1.14,round) * rnd(0.94,1.06);
-  const n = 6 + Math.floor(rnd(0,4));
-  const raw=[];
-  for(let i=0;i<n;i++){ const a=i/n*Math.PI*2+rnd(-0.16,0.16); const rr=baseR*rnd(0.86,1.12); raw.push({x:Math.cos(a)*rr*elong, y:Math.sin(a)*rr*flat}); }
-  let maxY=-1e9,minY=1e9; for(const p of raw){ maxY=Math.max(maxY,p.y); minY=Math.min(minY,p.y); }
-  const cutY=lerp(minY,maxY,rnd(0.60,0.76));
-  for(const p of raw){ if(p.y>cutY) p.y=cutY; }
-  const rot=lerp(rnd(-0.3,0.3), rnd(0,Math.PI), round), cr=Math.cos(rot),sr=Math.sin(rot);
-  for(const p of raw){ const x=p.x*cr-p.y*sr,y=p.x*sr+p.y*cr; p.x=x; p.y=y; }
-  let poly=chaikin(convexHull(raw), 3);
-  const c=pac(poly); poly=poly.map(p=>({x:p.x-c.cx,y:p.y-c.cy}));
-  const area=pac(poly).area;
-  const f=new Float32Array(poly.length*2); poly.forEach((p,i)=>{f[i*2]=p.x;f[i*2+1]=p.y;});
-  return { verts:poly, flat32:f, area };
+  // first piece: large, flat, stable base (square corners)
+  if(state.used===0) return hullShape(rectPts(rnd(1.6,1.9), rnd(0.40,0.48), 0));
+  const r=Math.random();
+  let pts;
+  if(r<0.26){                       // slab — long & thin (random horizontal/vertical)
+    let w=rnd(0.70,1.15), h=w*rnd(0.16,0.28);
+    if(Math.random()<0.4){ const t=w; w=h; h=t; }
+    pts=rectPts(w,h,1);
+  } else if(r<0.46){                // brick — moderate oblong
+    let w=rnd(0.52,0.82), h=w*rnd(0.45,0.7);
+    if(Math.random()<0.5){ const t=w; w=h; h=t; }
+    pts=rectPts(w,h,2);
+  } else if(r<0.62){                // chunky — near-square, often 5–6 sides
+    const s=rnd(0.36,0.56);
+    pts=rectPts(s, s*rnd(0.85,1.0), 2);
+  } else if(r<0.84){                // wedge / trapezoid
+    pts=wedgePts(rnd(0.48,0.85), rnd(0.34,0.62));
+    if(Math.random()<0.5) pts=pts.map(flipY);
+  } else {                          // ramp — right trapezoid
+    pts=rampPts(rnd(0.48,0.78), rnd(0.34,0.60));
+    if(Math.random()<0.5) pts=pts.map(flipX);
+    if(Math.random()<0.5) pts=pts.map(flipY);
+  }
+  // global size multiplier — wide range so block areas vary a lot (~10× spread)
+  const s=rnd(0.50,1.55);
+  pts=pts.map(p=>({x:p.x*s, y:p.y*s}));
+  return hullShape(pts);
 }
 
-// ================= stone texture (pre-rendered once per stone) =================
-const PALETTES=[
-  [[143,137,121],[222,212,190],[92,90,79]],
-  [[156,147,124],[228,216,191],[103,95,79]],
-  [[120,124,109],[197,193,174],[76,82,71]],
-  [[133,128,114],[209,202,182],[85,85,74]],
-  [[176,162,134],[233,221,196],[114,101,80]],
-  [[150,142,127],[224,214,193],[97,92,80]]
-];
-function buildStoneTexture(rock){
-  const pad=7, P=PPM;
-  const vpx=rock.verts.map(v=>({x:v.x*P,y:v.y*P}));
+// ================= block texture =================
+function buildBlockTexture(rock){
+  const P=PPM, pad=6;
   let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
-  for(const p of vpx){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);}
-  const sw=maxX-minX, sh=maxY-minY, ox=-minX+pad, oy=-minY+pad;
-  const cv=document.createElement('canvas'); cv.width=Math.ceil(sw+pad*2); cv.height=Math.ceil(sh+pad*2);
-  const t=cv.getContext('2d'); t.translate(ox,oy);
-  t.beginPath(); vpx.forEach((p,i)=> i?t.lineTo(p.x,p.y):t.moveTo(p.x,p.y)); t.closePath();
-  t.save(); t.clip();
-  shadeStone(t, sw, sh, rock.seed, rock.pal);
-  t.restore();
-  t.beginPath(); vpx.forEach((p,i)=> i?t.lineTo(p.x,p.y):t.moveTo(p.x,p.y)); t.closePath();
-  t.lineWidth=1.1; t.strokeStyle='rgba(70,62,46,0.16)'; t.stroke();
+  for(const v of rock.outline){minX=Math.min(minX,v.x*P);maxX=Math.max(maxX,v.x*P);minY=Math.min(minY,v.y*P);maxY=Math.max(maxY,v.y*P);}
+  const sw=Math.ceil(maxX-minX)+pad*2, sh=Math.ceil(maxY-minY)+pad*2;
+  const ox=pad-minX, oy=pad-minY;
+  const cv=document.createElement('canvas'); cv.width=sw; cv.height=sh;
+  const t=cv.getContext('2d');
+  const img=t.createImageData(sw,sh); const data=img.data;
+  const pm=makePermutation(Math.random()*1e6|0);
+  const base=125+Math.random()*40;  // 125–165, darker than background
+  for(let py=0;py<sh;py++){
+    for(let px=0;px<sw;px++){
+      const wx=(px-ox)/P, wy=(py-oy)/P;  // world coords (meters)
+      const fn=fbm2(wx*8.0+50,   wy*8.0+50,   pm, 4);
+      const gr=fbm2(wx*28.0+200, wy*28.0+200, pm, 3);
+      const hi=fbm2(wx*70.0+600, wy*70.0+600, pm, 2);
+      let v=base + fn*14 + gr*8 + hi*4;
+      const i=(py*sw+px)*4;
+      data[i]  =Math.max(0,Math.min(255,v+1));
+      data[i+1]=Math.max(0,Math.min(255,v+1));
+      data[i+2]=Math.max(0,Math.min(255,v-1));
+      data[i+3]=255;
+    }
+  }
+  t.putImageData(img,0,0);
   rock.tex=cv; rock.texOX=ox; rock.texOY=oy;
 }
-function shadeStone(t, w, h, seed, pal){
-  const W2=w, H2=h, fill=()=>t.fillRect(-W2,-H2,W2*2,H2*2);
-  t.fillStyle=rgb(pal[0]); fill();
-  t.save(); t.globalCompositeOperation='screen';
-  let g=t.createRadialGradient(-W2*0.22,-H2*0.32,0,-W2*0.16,-H2*0.22,W2*0.5);
-  g.addColorStop(0,'rgba(255,250,236,0.42)'); g.addColorStop(0.45,'rgba(255,250,236,0.15)'); g.addColorStop(1,'rgba(255,250,236,0)');
-  t.fillStyle=g; fill(); t.restore();
-  t.save(); t.globalCompositeOperation='multiply';
-  g=t.createLinearGradient(-W2*0.35,-H2*0.40,W2*0.42,H2*0.35);
-  g.addColorStop(0,'rgba(40,34,26,0)'); g.addColorStop(0.5,'rgba(55,45,32,0.06)'); g.addColorStop(0.78,'rgba(55,45,32,0.14)'); g.addColorStop(1,'rgba(40,34,26,0.24)');
-  t.fillStyle=g; fill(); t.restore();
-  t.save(); t.globalCompositeOperation='multiply';
-  g=t.createRadialGradient(W2*0.18,H2*0.12,0,W2*0.18,H2*0.12,W2*0.46);
-  g.addColorStop(0,'rgba(50,40,28,0.18)'); g.addColorStop(0.55,'rgba(50,40,28,0.07)'); g.addColorStop(1,'rgba(50,40,28,0)');
-  t.fillStyle=g; fill(); t.restore();
-  t.save(); t.globalCompositeOperation='multiply';
-  g=t.createLinearGradient(0,-H2*0.05,0,H2*0.52);
-  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(0.7,'rgba(55,45,32,0.05)'); g.addColorStop(1,'rgba(55,45,32,0.17)');
-  t.fillStyle=g; fill(); t.restore();
-  let rand=mulberry32(seed+100); t.save(); t.globalCompositeOperation='multiply';
-  for(let i=0;i<240;i++){ const x=lerp(-W2*0.48,W2*0.48,rand()),y=lerp(-H2*0.45,H2*0.45,rand());
-    if((x*x)/((W2*0.5)**2)+(y*y)/((H2*0.46)**2)>1) continue;
-    const r=lerp(5,20,rand()),a=lerp(0.006,0.022,rand()),c=rand()>0.5?pal[2]:mix(pal[0],pal[2],0.35);
-    g=t.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,rgb(c,a)); g.addColorStop(1,rgb(c,0));
-    t.fillStyle=g; t.beginPath(); t.arc(x,y,r,0,7); t.fill(); } t.restore();
-  rand=mulberry32(seed+200); t.save(); t.globalCompositeOperation='multiply';
-  for(let i=0;i<620;i++){ const x=lerp(-W2*0.5,W2*0.5,rand()),y=lerp(-H2*0.46,H2*0.46,rand());
-    if((x*x)/((W2*0.51)**2)+(y*y)/((H2*0.47)**2)>1) continue;
-    t.fillStyle=`rgba(42,38,30,${lerp(0.01,0.028,rand())})`; t.beginPath();
-    t.ellipse(x,y,lerp(0.3,1.1,rand()),lerp(0.3,0.9,rand()),rand()*Math.PI,0,7); t.fill(); } t.restore();
-  rand=mulberry32(seed+300); const sc=Math.floor(lerp(8,16,rand()));
-  for(let i=0;i<sc;i++){ const y=lerp(-H2*0.28,H2*0.28,rand()),x=lerp(-W2*0.36,W2*0.26,rand());
-    const len=lerp(W2*0.06,W2*0.20,rand()),ang=lerp(-0.42,0.30,rand()),a=lerp(0.03,0.10,rand());
-    t.save(); t.translate(x,y); t.rotate(ang); t.beginPath(); t.moveTo(0,0);
-    for(let j=1;j<=4;j++){ t.lineTo(len*j/4, noise1(j*0.9+i, seed+777)*2); }
-    t.lineWidth=lerp(0.4,0.9,rand()); t.lineCap='round';
-    t.strokeStyle=rand()>0.25?`rgba(255,250,232,${a})`:`rgba(45,40,32,${a*0.6})`; t.stroke(); t.restore(); }
-}
 
-// ================= rocks =================
+// ================= blocks =================
 let rocks = [];
 const colToRock = new Map();
 function addRock(x,y,ang,shape,dynamic){
   const bd=(dynamic?RAPIER.RigidBodyDesc.dynamic():RAPIER.RigidBodyDesc.kinematicPositionBased())
-    .setTranslation(x,y).setRotation(ang).setCcdEnabled(true).setLinearDamping(0.7).setAngularDamping(1.6);
+    .setTranslation(x,y).setRotation(ang).setCcdEnabled(true).setLinearDamping(0.9).setAngularDamping(1.8);
   const body=world.createRigidBody(bd);
-  const col=world.createCollider(RAPIER.ColliderDesc.convexHull(shape.flat32).setFriction(1.8).setRestitution(0.0).setDensity(1.0), body);
-  const rock={ body, col, verts:shape.verts, area:shape.area, seed:(Math.random()*1e9)|0, pal:PALETTES[(Math.random()*PALETTES.length)|0] };
-  buildStoneTexture(rock);
-  colToRock.set(col.handle, rock); rocks.push(rock);
+  const desc=(RAPIER.ColliderDesc.convexHull(shape.hull) || RAPIER.ColliderDesc.ball(0.2))
+    .setFriction(1.8).setRestitution(0.0).setDensity(1.0);
+  const col=world.createCollider(desc,body);
+  // Cached shapes for descent/overlap queries (full + slightly shrunk so merely
+  // touching a neighbour isn't treated as overlap). Built once, reused each frame.
+  const shrunk=new Float32Array(shape.hull.length);
+  for(let i=0;i<shrunk.length;i++) shrunk[i]=shape.hull[i]*0.90;
+  const physShape=new RAPIER.ConvexPolygon(shape.hull, false);
+  const queryShape=new RAPIER.ConvexPolygon(shrunk, false);
+  const rock={body,col,outline:shape.outline,hull:shape.hull,area:shape.area,physShape,queryShape};
+  colToRock.set(col.handle,rock);
+  buildBlockTexture(rock);
+  rocks.push(rock);
   return rock;
 }
-function worldVerts(r){ const t=r.body.translation(),a=r.body.rotation(),c=Math.cos(a),s=Math.sin(a);
-  return r.verts.map(v=>({x:t.x+v.x*c-v.y*s, y:t.y+v.x*s+v.y*c})); }
+function worldVerts(r){
+  const t=r.body.translation(),a=r.body.rotation(),bc=Math.cos(a),bs=Math.sin(a),out=[];
+  for(const v of r.outline){ out.push({x:t.x+v.x*bc-v.y*bs, y:t.y+v.x*bs+v.y*bc}); }
+  return out;
+}
 function maxVel(){ let m=0; for(const r of rocks){ if(r.body.bodyType()!==RAPIER.RigidBodyType.Dynamic) continue;
   const v=r.body.linvel(); m=Math.max(m, Math.hypot(v.x,v.y)+Math.abs(r.body.angvel())*0.3); } return m; }
 
-// ============ stability (contact graph) ============
-const tx=(p,t,r)=>{const c=Math.cos(r),s=Math.sin(r);return {x:t.x+p.x*c-p.y*s, y:t.y+p.x*s+p.y*c};};
-function contactInfo(){
-  const info=new Map();
-  for(const r of rocks) info.set(r,{groundXs:[]});
-  for(const r of rocks){ const rY=r.body.translation().y;
-    world.contactPairsWith(r.col,(other)=>{ world.contactPair(r.col,other,(m,flipped)=>{
-      if(!m||m.numContacts()===0) return;
-      const isGround=other.handle===groundCol.handle; const otherRock=colToRock.get(other.handle);
-      const otherY=otherRock?otherRock.body.translation().y:(isGround?Infinity:-Infinity);
-      if(!(isGround||(otherRock&&otherY>rY+0.004))) return;
-      const c1=flipped?other:r.col;
-      for(let i=0;i<m.numContacts();i++){ const p=tx(m.localContactPoint1(i),c1.translation(),c1.rotation());
-        if(isGround) info.get(r).groundXs.push(p.x); }
-    }); }); }
-  return info;
-}
-function stackBalance(info){
-  let A=0,mx=0,fxs=[];
-  for(const r of rocks){ if(state.active && r===state.active.rock) continue;
-    const t=r.body.translation(); A+=r.area; mx+=t.x*r.area; for(const x of info.get(r).groundXs) fxs.push(x); }
-  if(A===0||fxs.length===0) return null;
-  const comX=mx/A, lo=Math.min(...fxs), hi=Math.max(...fxs), mid=(lo+hi)/2;
-  const half=Math.max((hi-lo)/2, 0.22);
-  const off=clampn((comX-mid)/half,-1,1);
-  return { comX, lo, hi, mid, off, norm:1-Math.abs(off) };
-}
-
 // ================= state =================
-const state = { phase:'aim', active:null, used:0, height:0, score:0, settleT:0, simT:0 };
+const state = { phase:'aim', active:null, used:0, settleT:0, simT:0 };
 const keys = new Set();
 let dropQueued=false, moveHold=0, moveDir=0, rotHold=0, rotDir=0;
-let best = parseInt(localStorage.getItem('balance_best_score')||'0',10) || null;
-let branches=null, grass=null, treeGrowTime=0, lastBranch=0;
-let sun={x:0,y:0,vx:0,vy:0,r:200};
-
-function clearBoard(){ for(const r of rocks) world.removeRigidBody(r.body); rocks=[]; colToRock.clear(); ripples.length=0; }
+let cameraY=0, targetCameraY=0, baseRock=null;
 
 function spawnRock(){
   const shape=makeShape();
   let topY=floorYm; for(const r of rocks) for(const v of worldVerts(r)) topY=Math.min(topY,v.y);
-  let hw=0,hh=0; for(const v of shape.verts){ hw=Math.max(hw,Math.abs(v.x)); hh=Math.max(hh,Math.abs(v.y)); }
-  const x=worldW/2, y=Math.min(topY-hh-0.15, TOP_MARGIN_PX/PPM+hh);
-  const SLOW = 0.85;
-  state.descentV = SLOW + (DESCENT - SLOW) * Math.min(1, state.used / 9);
-  const rock=addRock(x,y,rnd(-0.3,0.3),shape,false);
+  let hw=0,hh=0; for(const v of shape.outline){ hw=Math.max(hw,Math.abs(v.x)); hh=Math.max(hh,Math.abs(v.y)); }
+  // spawn above the visible top edge (screen top = worldY cameraY) so it falls into view
+  const x=worldW/2, y=Math.min(topY-hh-0.15, cameraY-hh-0.25);
+  const SLOW=0.85;
+  state.descentV = SLOW + (DESCENT-SLOW)*Math.min(1, state.used/9);
+  const rock=addRock(x,y,state.used===0?0:rnd(-0.175,0.175),shape,false);
   state.active={ rock, x, y, angle:rock.body.rotation(), hw, hh, shape };
   moveHold=0; moveDir=0; rotHold=0; rotDir=0; state.phase='aim';
 }
 function clampVel(){ for(const r of rocks){ if(r.body.bodyType()!==RAPIER.RigidBodyType.Dynamic) continue;
-  const v=r.body.linvel(), sp=Math.hypot(v.x,v.y); if(sp>6){ const k=6/sp; r.body.setLinvel({x:v.x*k,y:v.y*k},true); }
-  const w=r.body.angvel(); if(Math.abs(w)>14) r.body.setAngvel(Math.sign(w)*14,true); } }
-function activeWorldVerts(a){ const c=Math.cos(a.angle),s=Math.sin(a.angle);
-  return a.shape.verts.map(v=>({x:a.x+v.x*c-v.y*s, y:a.y+v.x*s+v.y*c})); }
-function obstacleTopUnder(a){
-  const av=activeWorldVerts(a); let minx=1e9,maxx=-1e9; for(const v of av){ minx=Math.min(minx,v.x); maxx=Math.max(maxx,v.x); }
-  let top=floorYm;
-  for(const r of rocks){ if(r===a.rock) continue; const rv=worldVerts(r); let rminx=1e9,rmaxx=-1e9,rtop=1e9;
-    for(const v of rv){ rminx=Math.min(rminx,v.x); rmaxx=Math.max(rmaxx,v.x); rtop=Math.min(rtop,v.y); }
-    if(rmaxx>minx&&rminx<maxx) top=Math.min(top,rtop); }
-  return top;
+  const v=r.body.linvel(), sp=Math.hypot(v.x,v.y); if(sp>5){ const k=5/sp; r.body.setLinvel({x:v.x*k,y:v.y*k},true); }
+  const w=r.body.angvel(); if(Math.abs(w)>7) r.body.setAngvel(Math.sign(w)*7,true); } }
+// Fixed-timestep substepping. Stepping at the (variable, up to 1/30s) frame dt lets
+// fast-rotating pieces tunnel through each other; a small fixed dt catches the contact.
+const FIXED_DT = 1/120;
+let physAccum = 0;
+function stepWorld(dt){
+  physAccum += dt;
+  let n=0;
+  while(physAccum >= FIXED_DT && n < 8){ world.step(); clampVel(); physAccum -= FIXED_DT; n++; }
+  if(physAccum > FIXED_DT) physAccum = 0;   // drop backlog, avoid spiral of death
+}
+// True vertical clearance below the active piece, using Rapier's own geometry.
+// The piece's convex hull is cast straight down (vel = +Y) against every other
+// collider (obstacles AND the floor). With |vel|=1 the time_of_impact equals the
+// distance in metres — an exact gap at the real contact, no shadow heuristic.
+const DOWN={x:0,y:1};
+function descentGap(a){
+  const hit=world.castShape({x:a.x,y:a.y}, a.angle, DOWN, a.rock.physShape, 0, 50, true,
+    undefined, undefined, undefined, a.rock.body);
+  return hit ? hit.time_of_impact : 50;
+}
+// Would the active piece, at this candidate pose, overlap any settled collider?
+// Used to veto lateral/rotation input that would drive a piece into a neighbour.
+// Uses the slightly-shrunk hull so merely *touching* a neighbour isn't a veto.
+function poseOverlaps(a, x, y, angle){
+  let hit=false;
+  world.intersectionsWithShape({x,y}, angle, a.rock.queryShape,
+    ()=>{ hit=true; return false; },
+    undefined, undefined, undefined, a.rock.body);
+  return hit;
 }
 function release(){ const a=state.active; a.rock.body.setBodyType(RAPIER.RigidBodyType.Dynamic,true);
   a.rock.body.setLinvel({x:0,y:0},true); a.rock.body.setAngvel(0,true);
-  state.active=null; state.used++; state.settleT=0; state.simT=0; state.phase='sim';
-  treeGrowTime=performance.now(); lastBranch=(state.used%2===1)?0:1; }
+  if(!baseRock) baseRock=a.rock;
+  state.active=null; state.used++; state.settleT=0; state.simT=0; state.phase='sim'; }
 
 // ================= main loop =================
-let started=false;
 let lastT=performance.now();
 function frame(now){
   const dt=Math.min(0.033,(now-lastT)/1000); lastT=now;
-  if(started){
-   if(state.phase==='aim' && state.active){
+  // smooth camera pan toward target
+  cameraY+=(targetCameraY-cameraY)*Math.min(1,5.0*dt);
+  if(state.phase!=='over'){
+    if(state.phase==='aim' && state.active){
       const a=state.active;
+      // Horizontal move — veto if it would push the piece into a settled neighbour.
       const md=(keys.has('ArrowRight')?1:0)-(keys.has('ArrowLeft')?1:0);
-      if(md!==0){ if(md!==moveDir){moveDir=md;moveHold=0;} moveHold+=dt; a.x+=md*(0.45+Math.min(moveHold,0.75)/0.75*2.6)*dt; } else moveDir=0;
+      if(md!==0){ if(md!==moveDir){moveDir=md;moveHold=0;} moveHold+=dt;
+        const nx=clampn(a.x+md*(0.45+Math.min(moveHold,0.75)/0.75*2.6)*dt, a.hw+0.05, worldW-a.hw-0.05);
+        if(!poseOverlaps(a, nx, a.y, a.angle)) a.x=nx;
+      } else moveDir=0;
+      // Rotate — veto if it would intersect a settled neighbour.
       const rd=(keys.has('ArrowDown')?1:0)-(keys.has('ArrowUp')?1:0);
-      if(rd!==0){ if(rd!==rotDir){rotDir=rd;rotHold=0;} rotHold+=dt; a.angle+=rd*(0.6+Math.min(rotHold,0.75)/0.75*2.0)*dt; } else rotDir=0;
+      if(rd!==0){ if(rd!==rotDir){rotDir=rd;rotHold=0;} rotHold+=dt;
+        const na=a.angle+rd*(0.6+Math.min(rotHold,0.75)/0.75*2.0)*dt;
+        if(!poseOverlaps(a, a.x, a.y, na)) a.angle=na;
+      } else rotDir=0;
       a.x=Math.max(a.hw+0.05,Math.min(worldW-a.hw-0.05,a.x));
-      const av=activeWorldVerts(a); let low=-1e9; for(const v of av) low=Math.max(low,v.y);
-      const gap=obstacleTopUnder(a)-low;
-      if(dropQueued||gap<=0.03){ a.rock.body.setNextKinematicTranslation({x:a.x,y:a.y}); a.rock.body.setNextKinematicRotation(a.angle); world.step(); release(); }
-      else { a.y+=Math.min(state.descentV*dt,gap-0.025); a.rock.body.setNextKinematicTranslation({x:a.x,y:a.y}); a.rock.body.setNextKinematicRotation(a.angle); world.step(); }
+      // Real geometry clearance below the piece (shape-cast against all colliders).
+      const gap=descentGap(a);
+      if(dropQueued||gap<=0.04){ a.rock.body.setNextKinematicTranslation({x:a.x,y:a.y}); a.rock.body.setNextKinematicRotation(a.angle); stepWorld(dt); release(); }
+      else { a.y+=Math.min(state.descentV*dt, Math.max(0,gap-0.04)); a.rock.body.setNextKinematicTranslation({x:a.x,y:a.y}); a.rock.body.setNextKinematicRotation(a.angle); stepWorld(dt); }
       dropQueued=false;
     } else {
-      world.step(); clampVel();
+      stepWorld(dt);
       if(state.phase==='sim'){ state.simT+=dt; const v=maxVel();
         if(v<SETTLE_VEL){ state.settleT+=dt; } else { state.settleT=0; }
         if(state.settleT>SETTLE_HOLD || (state.simT>SETTLE_MAX && v<0.4)) finalizePlacement(); }
     }
-   removeFallen();
-  }
-  updateWater(dt); updateSun(dt);
-  if(started && state.phase!=='over'){
-    state.score = computeScore();
-    document.getElementById('sVal').textContent = state.score;
+    checkTopple();
+    removeFallen();
   }
   render();
   requestAnimationFrame(frame);
 }
 
 function finalizePlacement(){
-  let topY=floorYm; for(const r of rocks) for(const v of worldVerts(r)) topY=Math.min(topY,v.y);
-  spawnRipplesAtWater();
-  if(rocks.length>0 && topY*PPM <= CEILING_PX) return reachedTop();
+  // Lock the base piece in place so it can't be displaced by subsequent pieces landing on it
+  if(baseRock && baseRock.body.bodyType()===RAPIER.RigidBodyType.Dynamic){
+    baseRock.body.setBodyType(RAPIER.RigidBodyType.Fixed,false);
+  }
+  maybePanCamera();
   spawnRock();
 }
-function computeScore(){
-  const settled=rocks.filter(r=>!(state.active&&r===state.active.rock));
-  if(settled.length===0){ state.height=0; return 0; }
-  let topY=floorYm, ground=0;
-  for(const r of settled){ let low=-1e9; for(const v of worldVerts(r)){ topY=Math.min(topY,v.y); low=Math.max(low,v.y); } if(low>=floorYm-0.05) ground++; }
-  state.height=Math.max(0,Math.round((floorYm-topY)*100));
-  if(state.height<=0) return 0;
-  return Math.round( Math.pow(state.height,1.3) / Math.sqrt(settled.length) / Math.max(1,ground) * 0.5 );
+function maybePanCamera(){
+  let topY=floorYm; for(const r of rocks) for(const v of worldVerts(r)) topY=Math.min(topY,v.y);
+  const screenTopY=(topY-cameraY)*PPM;
+  if(screenTopY<CEILING_PX){
+    const t=topY-H*0.25/PPM;
+    if(t<targetCameraY) targetCameraY=t;
+  }
 }
-function reachedTop(){
+function towerHeightCm(){
+  let topY=floorYm; for(const r of rocks) for(const v of worldVerts(r)) topY=Math.min(topY,v.y);
+  return Math.max(0,Math.round((floorYm-topY)*100));
+}
+function checkTopple(){
+  if(!baseRock) return;
+  for(const r of rocks){
+    if(r===baseRock) continue;
+    if(state.active&&r===state.active.rock) continue;
+    const t=r.body.translation();
+    if(t.x<-0.3||t.x>worldW+0.3){ triggerGameOver(); return; }
+    for(const v of worldVerts(r)){ if(v.y>=floorYm-0.06){ triggerGameOver(); return; } }
+  }
+}
+function triggerGameOver(){
   state.phase='over';
-  document.getElementById('ovStones').textContent=state.used;
+  document.getElementById('ovStones').textContent=towerHeightCm();
   document.getElementById('over').classList.add('show');
 }
-function syncHud(){ document.getElementById('sVal').textContent=state.score; }
 
-// ================= water (procedural) =================
-let ripples=[]; let waterT=0;
-function waterContactXs(){ const xs=[];
-  for(const r of rocks){ let low=-1e9; for(const v of worldVerts(r)) low=Math.max(low,v.y);
-    if(low >= floorYm-0.05) xs.push(r.body.translation().x*PPM); }
-  return xs;
-}
-function spawnRipplesAtWater(){ for(const x of waterContactXs()) ripples.push({x, r:8, life:1}); }
-function updateWater(dt){ waterT+=dt; if(waterT>2.1){ waterT=0; spawnRipplesAtWater(); }
-  for(const rp of ripples){ rp.r+=34*dt; rp.life-=dt/5.5; } ripples=ripples.filter(rp=>rp.life>0); }
-
-// ================= procedural background (built once) =================
+// ================= background (perlin concrete, built once) =================
 let bgCanvas=null;
 function buildBackground(){
-  bgCanvas=document.createElement('canvas'); bgCanvas.width=Math.round(W*DPR); bgCanvas.height=Math.round(H*DPR);
-  const b=bgCanvas.getContext('2d'); b.setTransform(DPR,0,0,DPR,0,0);
-  let g=b.createRadialGradient(W*0.42,H*0.30,0,W*0.5,H*0.48,Math.max(W,H)*0.9);
-  g.addColorStop(0,'#fbf6ea'); g.addColorStop(0.5,'#f2ebdb'); g.addColorStop(1,'#e7dcc7');
-  b.fillStyle=g; b.fillRect(0,0,W,H);
-  g=b.createRadialGradient(W*0.85,H*0.55,0,W*0.85,H*0.55,W*0.5);
-  g.addColorStop(0,'rgba(255,253,247,0.5)'); g.addColorStop(1,'rgba(255,253,247,0)');
-  b.fillStyle=g; b.fillRect(0,0,W,H);
-  const rand=mulberry32(7); b.globalAlpha=0.025; b.fillStyle='#6f6a5c';
-  for(let i=0;i<2600;i++) b.fillRect(rand()*W,rand()*H,1,1); b.globalAlpha=1;
-}
-
-// ---- drifting sun ----
-function initSun(){
-  sun.r=W*0.27; sun.x=rnd(W*0.18,W*0.82); sun.y=rnd(H*0.16,H*0.40);
-  const ang=rnd(0,Math.PI*2), sp=rnd(2.4,4.2);
-  sun.vx=Math.cos(ang)*sp; sun.vy=Math.sin(ang)*sp*0.4;
-}
-function updateSun(dt){
-  sun.x+=sun.vx*dt; sun.y+=sun.vy*dt; const R=sun.r;
-  if(sun.x<-R) sun.x=W+R; if(sun.x>W+R) sun.x=-R;
-  if(sun.y<H*0.08){ sun.y=H*0.08; sun.vy=Math.abs(sun.vy); }
-  if(sun.y>H*0.50){ sun.y=H*0.50; sun.vy=-Math.abs(sun.vy); }
-}
-function drawSun(){
-  const g=ctx.createRadialGradient(sun.x,sun.y,0,sun.x,sun.y,sun.r);
-  g.addColorStop(0,'rgba(255,250,238,0.72)'); g.addColorStop(0.42,'rgba(250,242,224,0.30)');
-  g.addColorStop(0.8,'rgba(224,210,180,0.13)'); g.addColorStop(1,'rgba(224,210,180,0)');
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(sun.x,sun.y,sun.r,0,7); ctx.fill();
-}
-
-// ---- procedural foliage ----
-function leafShape(g,x,y,ang,len,wd,col){
-  const c=Math.cos(ang),s=Math.sin(ang),ex=x+c*len,ey=y+s*len,px=-s,py=c;
-  g.beginPath(); g.moveTo(x,y);
-  g.quadraticCurveTo(x+c*len*0.5+px*wd, y+s*len*0.5+py*wd, ex,ey);
-  g.quadraticCurveTo(x+c*len*0.5-px*wd, y+s*len*0.5-py*wd, x,y);
-  g.fillStyle=col; g.fill();
-}
-function generateBranches(){
-  const ay = TOP_MARGIN_PX + (floorYpx-TOP_MARGIN_PX)*0.34;
-  branches = { left: makeBranch(-6, ay+rnd(-18,18), 1), right: makeBranch(W+6, ay+rnd(-18,18), -1) };
-}
-function makeBranch(baseX, baseY, dir){
-  const rand=mulberry32((Math.random()*1e9)|0), segW=(W*0.42)/14, out=[];
-  function grow(x,y,ang,steps,width){
-    for(let i=0;i<steps;i++){
-      ang += (rand()-0.5)*0.32;
-      let dx=Math.cos(ang), dy=Math.sin(ang)-0.05;
-      const L=Math.hypot(dx,dy); dx/=L; dy/=L; ang=Math.atan2(dy,dx);
-      const seg=segW*lerp(0.8,1.15,rand());
-      const nx=x+dx*seg, ny=y+dy*seg;
-      const cx=x+dx*seg*0.5+(rand()-0.5)*7, cy=y+dy*seg*0.5+(rand()-0.5)*7;
-      const side=(i%2===0)?1:-1, la=ang+side*lerp(0.7,1.05,rand()), ll=seg*lerp(1.4,2.2,rand());
-      const lc=`rgba(${118+rand()*22|0},${134+rand()*16|0},${102+rand()*14|0},0.6)`;
-      out.push({ x0:x,y0:y,cx,cy,x1:nx,y1:ny, w:Math.max(1,width), leaf:{x:nx,y:ny,ang:la,len:ll,wd:ll*0.28,col:lc} });
-      x=nx; y=ny; width=Math.max(1,width-0.18);
-      if(width>1.7 && i>=2 && i<steps-2 && rand()<0.36){
-        grow(x, y, ang+(rand()>0.5?1:-1)*lerp(0.55,0.95,rand()), 3+Math.floor(rand()*3), width*0.72);
-      }
+  const pw=Math.round(W*DPR),ph=Math.round(H*DPR);
+  bgCanvas=document.createElement('canvas'); bgCanvas.width=pw; bgCanvas.height=ph;
+  const b=bgCanvas.getContext('2d');
+  // Very subtle noise base
+  const img=b.createImageData(pw,ph); const data=img.data;
+  const inv=1/(PPM*DPR);
+  for(let y=0;y<ph;y++){
+    for(let x=0;x<pw;x++){
+      const wx=x*inv, wy=y*inv;
+      const md=fbm2(wx*4.0+100, wy*4.0+100, bgPerm, 3);
+      const hi=fbm2(wx*18.0+400, wy*18.0+400, bgPerm, 2);
+      const v=Math.max(0,Math.min(255, 184 + md*4 + hi*2))|0;
+      const i=(y*pw+x)*4;
+      data[i]=v; data[i+1]=v; data[i+2]=v; data[i+3]=255;
     }
   }
-  grow(baseX, baseY, dir>0 ? -0.18 : (Math.PI+0.18), 12, 3.0);
-  return out;
+  b.putImageData(img,0,0);
+  // Aggregate speckles — small, dense, subtle
+  const rng=mulberry32(42);
+  const count=Math.round(pw*ph/900);
+  for(let k=0;k<count;k++){
+    const sx=rng()*pw, sy=rng()*ph;
+    const r=(0.25+rng()*0.55)*DPR;
+    const alpha=0.10+rng()*0.28;
+    b.beginPath(); b.arc(sx,sy,r,0,Math.PI*2);
+    b.fillStyle=`rgba(52,50,48,${alpha.toFixed(2)})`;
+    b.fill();
+  }
 }
-function drawOneBranch(steps, n, animLast, growT){
-  if(n<=0) return; ctx.save(); ctx.lineCap='round'; ctx.strokeStyle='rgba(108,122,96,0.5)';
-  for(let i=0;i<n;i++){ const s=steps[i], t=(i===n-1&&animLast)?growT:1;
-    ctx.beginPath(); ctx.moveTo(s.x0,s.y0);
-    ctx.quadraticCurveTo(lerp(s.x0,s.cx,t),lerp(s.y0,s.cy,t),lerp(s.x0,s.x1,t),lerp(s.y0,s.y1,t));
-    ctx.lineWidth=s.w; ctx.stroke(); }
-  for(let i=0;i<n;i++){ const lf=steps[i].leaf, t=(i===n-1&&animLast)?growT:1; if(t<0.02) continue;
-    leafShape(ctx, lf.x, lf.y, lf.ang, lf.len*t, lf.wd*t, lf.col); }
+
+// ================= 3D slab rendering =================
+// Compute outward edge normals for a screen-space polygon.
+function drawLitEdges(pts){
+  let area=0;
+  for(let i=0;i<pts.length;i++){const p=pts[i],q=pts[(i+1)%pts.length]; area+=p.x*q.y-q.x*p.y;}
+  const cw=area>0;
+  const lx=Math.SQRT1_2, ly=-Math.SQRT1_2;  // light from top-right
+  ctx.lineCap='round';
+  for(let i=0;i<pts.length;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length];
+    const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
+    if(len<0.001) continue;
+    const nx=cw? dy/len:-dy/len, ny=cw?-dx/len: dx/len;
+    const d=nx*lx+ny*ly;          // -1 (away) → 0 (perpendicular) → 1 (facing)
+    const grey=Math.round((d+1)*0.5*255);
+    const alpha=(0.25+Math.abs(d)*0.65).toFixed(2);
+    const lw=2.5+Math.abs(d)*1.5;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle=`rgba(${grey},${grey},${grey},${alpha})`;
+    ctx.lineWidth=lw; ctx.stroke();
+  }
+}
+
+function drawBlock(r, active){
+  const pos=active?{x:active.x,y:active.y}:r.body.translation();
+  const ang=active?active.angle:r.body.rotation();
+  const bc=Math.cos(ang), bs=Math.sin(ang);
+  // texture fill, clipped to outline in rotated local space
+  ctx.save();
+  ctx.translate(pos.x*PPM,(pos.y-cameraY)*PPM);
+  ctx.rotate(ang);
+  ctx.beginPath();
+  r.outline.forEach((v,i)=>i?ctx.lineTo(v.x*PPM,v.y*PPM):ctx.moveTo(v.x*PPM,v.y*PPM));
+  ctx.closePath(); ctx.clip();
+  if(r.tex) ctx.drawImage(r.tex,-r.texOX,-r.texOY);
   ctx.restore();
-}
-function drawBranches(now){
-  if(!branches) return;
-  const leftN=Math.min(Math.ceil(state.used/2), branches.left.length);
-  const rightN=Math.min(Math.floor(state.used/2), branches.right.length);
-  const growT=smoothstep((now-treeGrowTime)/600);
-  drawOneBranch(branches.left, leftN, lastBranch===0, growT);
-  drawOneBranch(branches.right, rightN, lastBranch===1, growT);
-}
-// ---- tall grass in the bottom corners ----
-function blade(g,bx,by,h,lean,w,col){
-  const tx=bx+lean, ty=by-h, cx=bx+lean*0.4, cy=by-h*0.5;
-  g.beginPath(); g.moveTo(bx-w,by);
-  g.quadraticCurveTo(cx-w*0.3,cy,tx,ty);
-  g.quadraticCurveTo(cx+w*0.3,cy,bx+w,by);
-  g.closePath(); g.fillStyle=col; g.fill();
-}
-function generateGrass(){
-  grass=[]; const rand=mulberry32((Math.random()*1e9)|0);
-  for(const corner of [{x:W*0.06,dir:1},{x:W*0.94,dir:-1}]){
-    const n=Math.floor(lerp(12,18,rand())), baseY=H-BTN_PX+8;
-    for(let i=0;i<n;i++){
-      const bx=corner.x+(rand()-0.5)*W*0.15, h=lerp(90,210,rand());
-      const lean=corner.dir*lerp(6,42,rand())+(rand()-0.5)*26, w=lerp(2.2,4.8,rand());
-      const col=`rgba(${104+rand()*30|0},${120+rand()*22|0},${86+rand()*22|0},${lerp(0.42,0.62,rand()).toFixed(2)})`;
-      grass.push({ bx, by:baseY+(rand())*10, h, lean, w, col, phase:rand()*7, sway:lerp(2,6,rand()) });
-    }
-  }
-}
-function drawGrass(now){
-  if(!grass) return;
-  for(const bl of grass){ const s=Math.sin(now*0.0009+bl.phase)*bl.sway; blade(ctx, bl.bx, bl.by, bl.h, bl.lean+s, bl.w, bl.col); }
+  // lit edges in screen space (light direction fixed in world)
+  drawLitEdges(r.outline.map(v=>({
+    x:(pos.x+v.x*bc-v.y*bs)*PPM,
+    y:(pos.y+v.x*bs+v.y*bc-cameraY)*PPM
+  })));
 }
 
 // ================= render =================
 function render(){
   if(bgCanvas) ctx.drawImage(bgCanvas,0,0,W,H);
-  drawSun();
-  let wg=ctx.createLinearGradient(0,floorYpx-6,0,H);
-  wg.addColorStop(0,'rgba(232,224,206,0)'); wg.addColorStop(0.10,'rgba(228,221,205,0.5)');
-  wg.addColorStop(0.5,'rgba(216,208,190,0.62)'); wg.addColorStop(1,'rgba(206,197,177,0.72)');
-  ctx.fillStyle=wg; ctx.fillRect(0,floorYpx-6,W,H-floorYpx+6);
-  ctx.save(); ctx.beginPath(); ctx.rect(0,floorYpx,W,H-floorYpx); ctx.clip(); ctx.globalAlpha=0.16;
-  for(const r of rocks) blitStone(r, true);
-  if(state.active) blitStone(state.active.rock, true, state.active);
-  ctx.globalAlpha=1; ctx.restore();
-  ctx.save();
-  for(const rp of ripples){ const a=rp.life*Math.min(1,rp.r/20);
-    ctx.lineWidth=1.7; ctx.strokeStyle=`rgba(255,255,255,${a*0.95})`;
-    ctx.beginPath(); ctx.ellipse(rp.x,floorYpx+2,rp.r,rp.r*0.24,0,0,7); ctx.stroke();
-    ctx.lineWidth=1.3; ctx.strokeStyle=`rgba(138,130,106,${a*0.6})`;
-    ctx.beginPath(); ctx.ellipse(rp.x,floorYpx+5,rp.r*0.9,rp.r*0.22,0,0,7); ctx.stroke(); }
-  ctx.restore();
-  for(const r of rocks) drawStone(r);
-  if(state.active) drawStone(state.active.rock, state.active);
-  const now=performance.now();
-  drawGrass(now);
-  drawBranches(now);
+
+  // floor line — visible only while it's still in the play area
+  const floorScreenY=(floorYm-cameraY)*PPM;
+  if(floorScreenY>0&&floorScreenY<H-BTN_PX){
+    ctx.save(); ctx.strokeStyle='rgba(0,0,0,0.28)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,floorScreenY); ctx.lineTo(W,floorScreenY);
+    ctx.stroke(); ctx.restore();
+  }
+
+  for(const r of rocks) drawBlock(r);
+  if(state.active) drawBlock(state.active.rock, state.active);
 }
-function blitStone(r, reflect, active){
-  const t=active? {x:active.x,y:active.y} : r.body.translation();
-  const ang=active? active.angle : r.body.rotation();
-  const sx=M2P(t.x), sy=M2P(t.y);
-  ctx.save();
-  if(reflect){ ctx.translate(sx, 2*floorYpx - sy); ctx.scale(1,-1); ctx.rotate(ang); }
-  else { ctx.translate(sx,sy); ctx.rotate(ang); }
-  ctx.drawImage(r.tex, -r.texOX, -r.texOY);
-  ctx.restore();
-}
-function drawStone(r, active){ blitStone(r, false, active); }
 
 // ================= input =================
 window.addEventListener('keydown', e=>{
-  if(!started){ if(e.key===' '||e.key==='Enter'){ beginGame(); e.preventDefault(); } return; }
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
   if(e.key===' ') dropQueued=true;
   if(e.key==='r'||e.key==='R') reset();
@@ -448,15 +454,20 @@ window.addEventListener('pointerup', ()=>{ keys.delete('ArrowLeft'); keys.delete
 
 document.getElementById('ovBtn').addEventListener('click', reset);
 
-const introEl=document.getElementById('intro');
-function beginGame(){ if(started) return; started=true; dropQueued=false; lastT=performance.now(); introEl.classList.remove('show'); }
-document.getElementById('introBtn').addEventListener('click', beginGame);
-introEl.addEventListener('pointerdown', e=>{ if(e.target===introEl) beginGame(); });
-
 // ================= world / lifecycle =================
 let world, groundCol;
 function buildWorld(){
   world=new RAPIER.World({x:0,y:5.0});
+  // Small (0.3–0.5m) compound pieces tunnel rotationally at a big timestep, so we
+  // run physics at a fixed 1/120s substep (see stepWorld) with extra solver
+  // iterations for stable stacks. lengthUnit matches our piece scale so Rapier's
+  // contact tolerances are sized for these small objects, not 1m defaults.
+  const ip=world.integrationParameters;
+  ip.dt = FIXED_DT;
+  ip.lengthUnit = 0.3;
+  ip.numSolverIterations = 12;
+  ip.numInternalPgsIterations = 2;
+  ip.maxCcdSubsteps = 4;
   const g=world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(worldW/2, floorYm+0.5));
   groundCol=world.createCollider(RAPIER.ColliderDesc.cuboid(worldW/2,0.5).setFriction(1.8), g);
 }
@@ -464,19 +475,19 @@ function removeFallen(){
   for(let i=rocks.length-1;i>=0;i--){ const r=rocks[i];
     if(state.active && r===state.active.rock) continue;
     const t=r.body.translation();
-    if(t.y > floorYm+1.0 || t.x < -1.0 || t.x > worldW+1.0){
+    if(t.y>floorYm+1.0||t.x<-1.0||t.x>worldW+1.0){
       world.removeRigidBody(r.body); colToRock.delete(r.col.handle); rocks.splice(i,1);
     }
   }
 }
 function reset(){
   buildWorld();
-  rocks=[]; colToRock.clear(); ripples.length=0;
-  state.phase='aim'; state.active=null; state.used=0; state.height=0; state.score=0; state.settleT=0; state.simT=0;
-  dropQueued=false; treeGrowTime=0; lastBranch=0;
-  generateBranches(); generateGrass(); initSun();
+  rocks=[]; colToRock.clear();
+  state.phase='aim'; state.active=null; state.used=0; state.settleT=0; state.simT=0;
+  cameraY=0; targetCameraY=0; baseRock=null;
+  dropQueued=false;
   document.getElementById('over').classList.remove('show');
-  syncHud(); spawnRock();
+  spawnRock();
 }
 
 window.addEventListener('resize', ()=>{ sizeCanvas(); buildBackground(); });
