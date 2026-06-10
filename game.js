@@ -12,15 +12,18 @@ const BTN_PX = 90, FLOOR_GAP = 0;
 const DESCENT = 1.6;
 const SETTLE_VEL = 0.04, SETTLE_HOLD = 0.35, SETTLE_MAX = 3.0;
 
-let W, H, DPR, floorYpx, floorYm, worldW;
+let W, H, DPR, floorYpx, floorYm, worldW, ctrlH=BTN_PX;
+const controlsEl = document.getElementById('controls');
 function sizeCanvas(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   W = app.clientWidth; H = app.clientHeight;
   cvs.width = Math.round(W*DPR); cvs.height = Math.round(H*DPR);
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  // floor sits at the top of the control bar, whose height now includes the bottom safe-area inset
+  ctrlH = controlsEl.offsetHeight || BTN_PX;
+  worldW = W/PPM; floorYpx = H - ctrlH - FLOOR_GAP; floorYm = floorYpx/PPM;
 }
 sizeCanvas();
-worldW = W/PPM; floorYpx = H - BTN_PX - FLOOR_GAP; floorYm = floorYpx/PPM;
 const M2P = m => m*PPM;
 
 // ================= math =================
@@ -469,7 +472,7 @@ function render(){
 
   // floor line — visible only while it's still in the play area
   const floorScreenY=(floorYm-cameraY)*PPM;
-  if(floorScreenY>0&&floorScreenY<H-BTN_PX){
+  if(floorScreenY>0&&floorScreenY<H-ctrlH){
     ctx.save(); ctx.strokeStyle='rgba(0,0,0,0.28)'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.moveTo(0,floorScreenY); ctx.lineTo(W,floorScreenY);
     ctx.stroke(); ctx.restore();

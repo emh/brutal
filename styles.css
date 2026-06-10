@@ -24,12 +24,13 @@ body{
   box-shadow:6px 6px 0 #000, 0 0 0 2px #000;
 }
 @media(min-width:600px){ #app{ height:calc(100% - 24px); } }
+@media (display-mode: standalone){ #app{ box-shadow:none; max-width:none; } }   /* edge-to-edge when installed */
 #c{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 .ov{ position:absolute; z-index:2; }
 
 /* ---- score (top-center; black with white outline, pieces fall behind it) ---- */
 #score{ top:0; left:0; right:0; display:flex; justify-content:center; align-items:center;
-        padding:18px 0 0; pointer-events:none; }
+        padding:calc(18px + env(safe-area-inset-top)) 0 0; pointer-events:none; }
 .sval{ font-family:"Space Grotesk", sans-serif; font-weight:700; font-size:64px; line-height:1;
        color:#0d0c0b; letter-spacing:.01em;
        text-shadow:-2px -2px 0 #b4b0ac, 2px -2px 0 #b4b0ac, -2px 2px 0 #b4b0ac, 2px 2px 0 #b4b0ac,
@@ -37,7 +38,9 @@ body{
 
 /* ---- controls ---- */
 #controls{
-  left:0; right:0; bottom:0; height:90px;
+  left:0; right:0; bottom:0;
+  height:calc(90px + env(safe-area-inset-bottom));   /* buttons stay 90px; dark bg fills the inset */
+  padding-bottom:env(safe-area-inset-bottom);
   display:flex; align-items:stretch;
   background:#0d0c0b; border-top:1px solid #2a2826;
 }

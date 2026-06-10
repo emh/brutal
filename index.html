@@ -2,8 +2,45 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Balance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>BRUTAL — stack the tallest tower</title>
+
+<!-- SEO -->
+<meta name="description" content="BRUTAL is a physics block-stacking game. Steer falling concrete blocks and build the tallest tower you can before it topples." />
+<meta name="author" content="emh" />
+<link rel="canonical" href="https://emh.io/brutal" />
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="BRUTAL" />
+<meta property="og:title" content="BRUTAL — stack the tallest tower" />
+<meta property="og:description" content="A physics block-stacking game. Steer falling concrete blocks and build the tallest tower before it topples." />
+<meta property="og:url" content="https://emh.io/brutal" />
+<meta property="og:image" content="https://emh.io/brutal/og-image.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="BRUTAL — a stacked tower of concrete blocks" />
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="BRUTAL — stack the tallest tower" />
+<meta name="twitter:description" content="A physics block-stacking game. Build the tallest tower before it topples." />
+<meta name="twitter:image" content="https://emh.io/brutal/og-image.png" />
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#b8b6b4">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS standalone: translucent status bar so the concrete texture shows under the notch -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BRUTAL">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
@@ -68,6 +105,11 @@
 { "imports": { "@dimforge/rapier2d-compat": "https://esm.sh/@dimforge/rapier2d-compat@0.14.0" } }
 </script>
 <script type="module" src="game.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+</script>
   <script async data-id="101507205" src="//static.getclicky.com/js"></script>
 </body>
 </html>
