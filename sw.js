@@ -1,6 +1,6 @@
 // Minimal service worker: cache the local app shell, network for everything else
 // (the physics engine loads from esm.sh and stays on the network).
-const CACHE = 'brutal-v1';
+const CACHE = 'brutal-v2';
 const ASSETS = [
   './', './index.html', './styles.css', './game.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-180.png',
