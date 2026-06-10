@@ -63,6 +63,8 @@ body{
 .card .rsn{ font-size:9px; letter-spacing:.30em; color:var(--muted); font-weight:700; text-transform:uppercase; margin-bottom:8px; }
 .card .big{ font-weight:300; font-size:72px; line-height:1; color:var(--ink); }
 .card .cap{ font-size:9px; letter-spacing:.24em; color:var(--muted); font-weight:700; text-transform:uppercase; margin-top:6px; }
+#introBest{ margin-top:16px; }
+#introBest:empty, #ovBest:empty{ display:none; }   /* no empty gap before a first score exists */
 .card .meta{ font-size:15px; color:var(--ink); margin-top:14px; letter-spacing:.04em; }
 .card .btns{ display:flex; gap:10px; margin-top:24px; flex-wrap:wrap; justify-content:center; }
 

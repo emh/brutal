@@ -218,6 +218,9 @@ let dropQueued=false, moveHold=0, moveDir=0, rotHold=0, rotDir=0;
 let cameraY=0, targetCameraY=0, baseRock=null, settlingRock=null;
 let running=false;   // false while the welcome modal is up; set true on "begin"
 let finalScore=0, shareBlob=null;   // captured at game over; tower PNG for sharing
+let highScore=0;
+try{ highScore = parseInt(localStorage.getItem('brutal.best'), 10) || 0; }catch(e){}
+function saveHigh(){ try{ localStorage.setItem('brutal.best', String(highScore)); }catch(e){} }
 
 function spawnRock(){
   const shape=makeShape();
@@ -347,7 +350,10 @@ function checkTopple(){
 function triggerGameOver(){
   state.phase='over';
   finalScore=towerHeightCm();
+  const isNewBest = finalScore>highScore;
+  if(isNewBest){ highScore=finalScore; saveHigh(); }
   document.getElementById('ovStones').textContent=finalScore;
+  document.getElementById('ovBest').textContent = isNewBest ? 'new personal best' : `best · ${highScore}`;
   document.getElementById('over').classList.remove('cardless');
   document.getElementById('over').classList.add('show');
 }
@@ -602,5 +608,6 @@ window.addEventListener('resize', ()=>{ sizeCanvas(); buildBackground(); });
 
 buildBackground();
 reset();
+if(highScore>0) document.getElementById('introBest').textContent = `best · ${highScore}`;
 document.getElementById('intro').classList.add('show');   // welcome modal; game waits for "begin"
 requestAnimationFrame(frame);
